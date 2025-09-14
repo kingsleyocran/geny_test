@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../widgets/business_card.dart';
-import '../data/sample_data.dart';
 import '../models/business.dart';
 import '../models/service.dart';
+import '../providers/business_provider.dart';
+import '../providers/service_provider.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -20,7 +22,12 @@ class _MyHomePageState extends State<MyHomePage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
+    // Initialize data when the page loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<BusinessProvider>().initializeData();
+      context.read<ServiceProvider>().initializeData();
+    });
   }
 
   @override
@@ -31,53 +38,224 @@ class _MyHomePageState extends State<MyHomePage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.business), text: 'Businesses'),
-            Tab(icon: Icon(Icons.design_services), text: 'Services'),
+    return Consumer2<BusinessProvider, ServiceProvider>(
+      builder: (context, businessProvider, serviceProvider, child) {
+        final hasAnyError =
+            businessProvider.hasError || serviceProvider.hasError;
+        final isAnyLoading =
+            businessProvider.isLoading || serviceProvider.isLoading;
+
+        return Scaffold(
+          appBar: AppBar(
+            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+            title: Text(widget.title),
+            bottom: TabBar(
+              controller: _tabController,
+              tabs: [
+                Tab(
+                  icon: const Icon(Icons.business),
+                  text: 'Businesses (${businessProvider.count})',
+                ),
+                Tab(
+                  icon: const Icon(Icons.design_services),
+                  text: 'Services (${serviceProvider.count})',
+                ),
+              ],
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: () {
+                  businessProvider.refresh();
+                  serviceProvider.refresh();
+                },
+                tooltip: 'Refresh All Data',
+              ),
+              if (hasAnyError)
+                IconButton(
+                  icon: const Icon(Icons.warning, color: Colors.red),
+                  onPressed: () => _showErrorDialog(
+                      context, businessProvider, serviceProvider),
+                  tooltip: 'Show Errors',
+                ),
+            ],
+          ),
+          body: isAnyLoading &&
+                  businessProvider.businesses.isEmpty &&
+                  serviceProvider.services.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // Businesses Tab
+                    _buildBusinessesTab(businessProvider),
+                    // Services Tab
+                    _buildServicesTab(serviceProvider),
+                  ],
+                ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBusinessesTab(BusinessProvider provider) {
+    if (provider.isLoading && provider.businesses.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (provider.hasError) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            Text(
+              'Error loading businesses',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(provider.error!),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => provider.loadBusinesses(),
+              child: const Text('Retry'),
+            ),
           ],
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          // Businesses Tab
-          ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: SampleData.businesses.length,
-            itemBuilder: (context, index) {
-              final business = SampleData.businesses[index];
-              return BusinessCard<Business>(
-                item: business,
-                onTap: () => _showDetailsDialog(context, business),
-              );
-            },
-          ),
+      );
+    }
 
-          // Services Tab
-          ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: SampleData.services.length,
-            itemBuilder: (context, index) {
-              final service = SampleData.services[index];
-              return BusinessCard<Service>(
-                item: service,
-                onTap: () => _showDetailsDialog(context, service),
-              );
-            },
+    if (provider.businesses.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.business, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text('No businesses found'),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => provider.loadBusinesses(),
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: provider.businesses.length,
+        itemBuilder: (context, index) {
+          final business = provider.businesses[index];
+          return BusinessCard<Business>(
+            item: business,
+            onTap: () => _showDetailsDialog(context, business),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildServicesTab(ServiceProvider provider) {
+    if (provider.isLoading && provider.services.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (provider.hasError) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            Text(
+              'Error loading services',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(provider.error!),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => provider.loadServices(),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (provider.services.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.design_services, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text('No services found'),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => provider.loadServices(),
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: provider.services.length,
+        itemBuilder: (context, index) {
+          final service = provider.services[index];
+          return BusinessCard<Service>(
+            item: service,
+            onTap: () => _showDetailsDialog(context, service),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showErrorDialog(BuildContext context, BusinessProvider businessProvider,
+      ServiceProvider serviceProvider) {
+    final errors = <String>[];
+
+    if (businessProvider.hasError) {
+      errors.add('Business Error: ${businessProvider.error}');
+    }
+    if (serviceProvider.hasError) {
+      errors.add('Service Error: ${serviceProvider.error}');
+    }
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Errors'),
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: errors
+                .map((error) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(error),
+                    ))
+                .toList(),
           ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showJsonDemo(context),
-        tooltip: 'Show JSON Demo',
-        child: const Icon(Icons.code),
-      ),
+          actions: [
+            TextButton(
+              child: const Text('Clear Errors'),
+              onPressed: () {
+                businessProvider.clearError();
+                serviceProvider.clearError();
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Close'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -108,54 +286,6 @@ class _MyHomePageState extends State<MyHomePage>
                 Text('Location: ${item.bssLocation}'),
               ],
             ],
-          ),
-          actions: [
-            TextButton(
-              child: const Text('Close'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showJsonDemo(BuildContext context) {
-    final businessFromJson = Business.fromJson(SampleData.businessJson);
-    final serviceFromJson = Service.fromJson(SampleData.serviceJson);
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('JSON Parsing Demo'),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Business from JSON:',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                Text(businessFromJson.toString()),
-                const SizedBox(height: 16),
-                const Text('Service from JSON:',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                Text(serviceFromJson.toString()),
-                const SizedBox(height: 16),
-                BusinessCard<Business>(
-                  item: businessFromJson,
-                  margin: EdgeInsets.zero,
-                  elevation: 2,
-                ),
-                BusinessCard<Service>(
-                  item: serviceFromJson,
-                  margin: EdgeInsets.zero,
-                  elevation: 2,
-                ),
-              ],
-            ),
           ),
           actions: [
             TextButton(
